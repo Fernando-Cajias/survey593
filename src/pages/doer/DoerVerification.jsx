@@ -6,13 +6,19 @@ import { ShieldCheck, CheckCircle2, FileText, Upload } from 'lucide-react';
 
 export const DoerVerification = () => {
   const { currentUser, updateProfile } = useAuth();
-  const [docNumber, setDocNumber] = useState('1720394851');
-  const [verified, setVerified] = useState(currentUser.verified || false);
+
+  // Lee la cédula real del usuario guardada en Supabase (o un valor por defecto)
+  const userCedula = currentUser?.user_metadata?.cedula || currentUser?.cedula || '1717674376';
+  
+  const [docNumber, setDocNumber] = useState(userCedula);
+  const [verified, setVerified] = useState(currentUser?.verified || currentUser?.user_metadata?.kyc_status === 'verified' || false);
   const [success, setSuccess] = useState(false);
 
   const handleVerify = (e) => {
     e.preventDefault();
-    updateProfile({ verified: true });
+    if (updateProfile) {
+      updateProfile({ verified: true });
+    }
     setVerified(true);
     setSuccess(true);
   };
@@ -43,7 +49,10 @@ export const DoerVerification = () => {
             <CheckCircle2 className="w-8 h-8" />
           </div>
           <h2 className="text-xl font-bold text-white mb-1">¡Tu cuenta está 100% Verificada!</h2>
-          <p className="text-xs text-slate-400">Has superado la validación de identidad KYC de Survey 593.</p>
+          <p className="text-xs text-slate-400 mb-2">Has superado la validación de identidad KYC de Survey 593.</p>
+          <div className="inline-block mt-2 px-3 py-1 bg-slate-900 border border-slate-700 rounded-lg text-xs font-mono text-emerald-400">
+            Cédula: {docNumber}
+          </div>
         </div>
       ) : (
         <form onSubmit={handleVerify} className="glass-card p-6 space-y-4">
