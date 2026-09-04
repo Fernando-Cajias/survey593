@@ -6,6 +6,8 @@ import { DatabaseProvider } from './context/DatabaseContext';
 import { Layout } from './components/layout/Layout';
 import { LandingPage } from './pages/LandingPage';
 import { LoginPage } from './pages/LoginPage';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 
 // Doer Pages
 import { DoerDashboard } from './pages/doer/DoerDashboard';
@@ -38,11 +40,13 @@ export const App = () => {
       <DatabaseProvider>
         <BrowserRouter>
           <Routes>
-            {/* Public Routes */}
+            {/* Rutas Públicas */}
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
 
-            {/* Doer Routes */}
+            {/* Rutas para Encuestados (Doer) */}
             <Route element={<Layout allowedRoles={['doer']} />}>
               <Route path="/doer" element={<DoerDashboard />} />
               <Route path="/doer/surveys" element={<DoerSurveys />} />
@@ -52,7 +56,7 @@ export const App = () => {
               <Route path="/doer/verification" element={<DoerVerification />} />
             </Route>
 
-            {/* Provider Routes */}
+            {/* Rutas para Empresas (Provider) */}
             <Route element={<Layout allowedRoles={['provider']} />}>
               <Route path="/provider" element={<ProviderDashboard />} />
               <Route path="/provider/create" element={<CreateSurveyWizard />} />
@@ -66,7 +70,7 @@ export const App = () => {
               <Route path="/provider/dashboard/view/:id" element={<LiveDashboardView />} />
             </Route>
 
-            {/* Admin Routes */}
+            {/* Rutas de Administrador */}
             <Route element={<Layout allowedRoles={['admin']} />}>
               <Route path="/admin" element={<AdminDashboard />} />
               <Route path="/admin/users" element={<AdminUsers />} />
@@ -75,7 +79,7 @@ export const App = () => {
               <Route path="/admin/ecosystem" element={<AdminEcosystem />} />
             </Route>
 
-            {/* Fallback */}
+            {/* Redirección por defecto */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>

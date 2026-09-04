@@ -1,96 +1,100 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { INITIAL_USERS } from '../services/seedData';
+import { supabase } from '../services/supabaseClient';
 
 const AuthContext = createContext(null);
 
-const AUTH_STORAGE_KEY = 'survey593_react_user';
-const USERS_STORAGE_KEY = 'survey593_react_users';
-
 export const AuthProvider = ({ children }) => {
-  const [users, setUsers] = useState(() => {
-    const saved = localStorage.getItem(USERS_STORAGE_KEY);
-    return saved ? JSON.parse(saved) : INITIAL_USERS;
-  });
+  const [currentUser, setCurrentUser] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  const [currentUser, setCurrentUser] = useState(() => {
-    const saved = localStorage.getItem(AUTH_STORAGE_KEY);
-    return saved ? JSON.parse(saved) : null;
-  });
+  // Cargar información del usuario y su rol desde la base de datos de Supabase
+  const fetchUserProfile = async (sessionUser) => {
+    if (!sessionUser) {
+      setCurrentUser(null);
+      setLoading(false);
+      return;
+    }
+
+    try {
+      // Intentar obtener el rol y datos desde la tabla 'profiles'
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', sessionUser.id)
+        .single();
+
+      // Determinar rol (prioridad: tabla profiles -> user_metadata -> 'doer' por defecto)
+      const userRole = profile?.role || sessionUser.user_metadata?.role || 'doer';
+
+      setCurrentUser({
+        id: sessionUser.id,
+        email: sessionUser.email,
+        role: userRole,
+        ...profile,
+      });
+    } catch (error) {
+      console.error('Error al cargar perfil de usuario:', error);
+      setCurrentUser({
+        id: sessionUser.id,
+        email: sessionUser.email,
+        role: sessionUser.user_metadata?.role || 'doer',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
-  }, [users]);
+    // 1. Obtener la sesión activa de Supabase al iniciar la app
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      fetchUserProfile(session?.user || null);
+    });
 
-  useEffect(() => {
-    if (currentUser) {
-      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(currentUser));
-    } else {
-      localStorage.removeItem(AUTH_STORAGE_KEY);
-    }
-  }, [currentUser]);
+    // 2. Escuchar cambios de sesión en tiempo real (login, logout, refresco)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        fetchUserProfile(session.user);
+      } else {
+        setCurrentUser(null);
+        setLoading(false);
+      }
+    });
 
-  const login = (email, password) => {
-    const user = users.find((u) => u.email.toLowerCase() === email.toLowerCase() && u.password === password);
-    if (user) {
-      setCurrentUser(user);
-      return { success: true, user };
-    }
-    return { success: false, message: 'Credenciales incorrectas' };
-  };
+    return () => subscription.unsubscribe();
+  }, []);
 
-  const loginAs = (userId) => {
-    const user = users.find((u) => u.id === userId);
-    if (user) {
-      setCurrentUser(user);
-      return { success: true, user };
-    }
-    return { success: false };
-  };
-
-  const register = (userData) => {
-    const exists = users.some((u) => u.email.toLowerCase() === userData.email.toLowerCase());
-    if (exists) {
-      return { success: false, message: 'El correo electrónico ya está registrado' };
-    }
-
-    const newUser = {
-      id: `user_${Date.now().toString(36)}`,
-      ...userData,
-      balance: userData.role === 'provider' ? 1000 : 0,
-      verified: false,
-      surveysCompleted: 0,
-      streak: 0,
-      avatarColor: '#0D9488',
-      createdAt: new Date().toISOString(),
-    };
-
-    setUsers((prev) => [...prev, newUser]);
-    setCurrentUser(newUser);
-    return { success: true, user: newUser };
-  };
-
-  const logout = () => {
+  // Función de logout conectada a Supabase
+  const logout = async () => {
+    setLoading(true);
+    await supabase.auth.signOut();
     setCurrentUser(null);
+    setLoading(false);
   };
 
-  const updateProfile = (updates) => {
+  // Función para actualizar datos de perfil
+  const updateProfile = async (updates) => {
     if (!currentUser) return;
-    const updated = { ...currentUser, ...updates };
-    setCurrentUser(updated);
-    setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .upsert({ id: currentUser.id, ...updates });
+
+      if (!error) {
+        setCurrentUser((prev) => ({ ...prev, ...updates }));
+      }
+    } catch (err) {
+      console.error('Error al actualizar perfil:', err);
+    }
   };
 
   return (
     <AuthContext.Provider
       value={{
         currentUser,
-        users,
-        login,
-        loginAs,
-        register,
+        loading,
+        isAuthenticated: Boolean(currentUser),
         logout,
         updateProfile,
-        isAuthenticated: Boolean(currentUser),
       }}
     >
       {children}
