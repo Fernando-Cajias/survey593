@@ -9,6 +9,7 @@ export default function RegisterKYC({ onSwitchToLogin }) {
   const [password, setPassword] = useState('')
   const [cedula, setCedula] = useState('')
   const [loading, setLoading] = useState(false)
+  const [googleLoading, setGoogleLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
 
   // 1. Validación Regex para formato de correo electrónico
@@ -86,24 +87,49 @@ export default function RegisterKYC({ onSwitchToLogin }) {
     return (digitoVerificador === 10 ? 0 : digitoVerificador) === ultimoDigito
   }
 
+  // --- REGISTRO DIRECTO CON GOOGLE ---
+  const handleGoogleRegister = async () => {
+    setErrorMsg('')
+    setGoogleLoading(true)
+
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin,
+          data: {
+            role: role,
+            kyc_status: role === 'doer' ? 'pending_kyc' : 'n/a',
+          },
+        },
+      })
+
+      if (error) {
+        setErrorMsg('Error al conectar con Google. Inténtalo nuevamente.')
+      }
+    } catch (err) {
+      setErrorMsg(translateError(err.message))
+    } finally {
+      setGoogleLoading(false)
+    }
+  }
+
+  // --- REGISTRO MANUAL POR CORREO Y CONTRASEÑA ---
   const handleRegister = async (e) => {
     e.preventDefault()
     setErrorMsg('')
 
-    // Validación A: Formato de correo
     if (!validateEmail(email)) {
       setErrorMsg('Ingresa un correo electrónico con formato válido (ej: usuario@dominio.com).')
       return
     }
 
-    // Validación B: Complejidad de la contraseña
     const passwordError = validatePasswordSecurity(password)
     if (passwordError) {
       setErrorMsg(passwordError)
       return
     }
 
-    // Validación C: Cédula ecuatoriana (solo Doers)
     if (role === 'doer' && !validarCedulaEcuador(cedula)) {
       setErrorMsg('La cédula ingresada no es válida para Ecuador.')
       return
@@ -186,18 +212,53 @@ export default function RegisterKYC({ onSwitchToLogin }) {
         </div>
       )}
 
+      {/* BOTÓN REGISTRARSE CON GOOGLE (Directo) */}
+      <button
+        type="button"
+        disabled={loading || googleLoading}
+        onClick={handleGoogleRegister}
+        className="w-full mb-4 py-2.5 px-4 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-medium rounded-lg shadow flex items-center justify-center gap-3 transition cursor-pointer disabled:opacity-50 text-sm"
+      >
+        <svg className="w-5 h-5" viewBox="0 0 24 24">
+          <path
+            fill="#4285F4"
+            d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+          />
+          <path
+            fill="#34A853"
+            d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+          />
+          <path
+            fill="#FBBC05"
+            d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+          />
+          <path
+            fill="#EA4335"
+            d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+          />
+        </svg>
+        {googleLoading ? 'Conectando con Google...' : 'Registrarse con Google'}
+      </button>
+
+      {/* Separador */}
+      <div className="relative my-4 flex items-center justify-center">
+        <div className="border-t border-gray-800 w-full"></div>
+        <span className="bg-[#111827] px-3 text-xs text-gray-500 uppercase font-semibold absolute">o con correo</span>
+      </div>
+
       <form onSubmit={handleRegister} className="space-y-4 text-left">
         <div>
           <label className="block text-xs font-medium text-gray-300 mb-1">Nombre Completo</label>
           <input
             type="text"
             required
+            disabled={loading || googleLoading}
             value={fullName}
             onChange={(e) => {
               if (errorMsg) setErrorMsg('')
               setFullName(e.target.value)
             }}
-            className="w-full px-3 py-2.5 bg-[#1f293d] border border-gray-700/80 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500 transition"
+            className="w-full px-3 py-2.5 bg-[#1f293d] border border-gray-700/80 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500 transition disabled:opacity-50"
             placeholder="Ej: Juan Pérez"
           />
         </div>
@@ -211,13 +272,14 @@ export default function RegisterKYC({ onSwitchToLogin }) {
             <input
               type="text"
               required
+              disabled={loading || googleLoading}
               maxLength={10}
               value={cedula}
               onChange={(e) => {
                 if (errorMsg) setErrorMsg('')
                 setCedula(e.target.value.replace(/\D/g, ''))
               }}
-              className="w-full px-3 py-2.5 bg-[#1f293d] border border-emerald-500/40 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500 transition"
+              className="w-full px-3 py-2.5 bg-[#1f293d] border border-emerald-500/40 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500 transition disabled:opacity-50"
               placeholder="Ej: 1712345678"
             />
           </div>
@@ -229,12 +291,13 @@ export default function RegisterKYC({ onSwitchToLogin }) {
             <input
               type="text"
               required
+              disabled={loading || googleLoading}
               value={companyName}
               onChange={(e) => {
                 if (errorMsg) setErrorMsg('')
                 setCompanyName(e.target.value)
               }}
-              className="w-full px-3 py-2.5 bg-[#1f293d] border border-gray-700/80 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition"
+              className="w-full px-3 py-2.5 bg-[#1f293d] border border-gray-700/80 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition disabled:opacity-50"
               placeholder="Ej: Corporación Andina"
             />
           </div>
@@ -245,12 +308,13 @@ export default function RegisterKYC({ onSwitchToLogin }) {
           <input
             type="email"
             required
+            disabled={loading || googleLoading}
             value={email}
             onChange={(e) => {
               if (errorMsg) setErrorMsg('')
               setEmail(e.target.value)
             }}
-            className="w-full px-3 py-2.5 bg-[#1f293d] border border-gray-700/80 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500 transition"
+            className="w-full px-3 py-2.5 bg-[#1f293d] border border-gray-700/80 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500 transition disabled:opacity-50"
             placeholder="tu@email.com"
           />
         </div>
@@ -260,19 +324,20 @@ export default function RegisterKYC({ onSwitchToLogin }) {
           <input
             type="password"
             required
+            disabled={loading || googleLoading}
             value={password}
             onChange={(e) => {
               if (errorMsg) setErrorMsg('')
               setPassword(e.target.value)
             }}
-            className="w-full px-3 py-2.5 bg-[#1f293d] border border-gray-700/80 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500 transition"
+            className="w-full px-3 py-2.5 bg-[#1f293d] border border-gray-700/80 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500 transition disabled:opacity-50"
             placeholder="Mín. 8 caract., 1 mayús., 1 núm., 1 símbolo"
           />
         </div>
 
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || googleLoading}
           className="w-full py-3 px-4 mt-2 bg-emerald-500 hover:bg-emerald-600 text-gray-950 font-bold text-sm rounded-lg shadow-lg shadow-emerald-500/20 focus:outline-none transition disabled:opacity-50"
         >
           {loading ? 'Validando y creando...' : 'Completar Registro'}
@@ -284,6 +349,7 @@ export default function RegisterKYC({ onSwitchToLogin }) {
           ¿Ya tienes una cuenta?{' '}
           <button
             onClick={onSwitchToLogin}
+            disabled={loading || googleLoading}
             className="text-emerald-400 font-semibold hover:underline"
           >
             Inicia Sesión
