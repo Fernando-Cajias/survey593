@@ -29,6 +29,7 @@ import {
   Sparkles,
   School,
   X,
+  Smartphone,
 } from 'lucide-react';
 
 export const CreateSurveyWizard = () => {
@@ -51,7 +52,7 @@ export const CreateSurveyWizard = () => {
   const totalInvestment = escrowFund + platformFee;
 
   // Payment Gateway States
-  const [paymentMethod, setPaymentMethod] = useState('card'); // 'card' | 'transfer' | 'balance'
+  const [paymentMethod, setPaymentMethod] = useState('card'); // 'card' | 'transfer' | 'balance' | 'deuna' | 'kushki'
   const [isFinancing, setIsFinancing] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [paymentSuccessReceipt, setPaymentSuccessReceipt] = useState(null);
@@ -67,6 +68,21 @@ export const CreateSurveyWizard = () => {
   const [transferRef, setTransferRef] = useState('');
   const [transferDate, setTransferDate] = useState(new Date().toISOString().split('T')[0]);
   const [copiedAccount, setCopiedAccount] = useState(false);
+
+  // DeUna wallet state
+  const [deunaPhone, setDeunaPhone] = useState('');
+  const [deunaQrGenerated, setDeunaQrGenerated] = useState(false);
+  const [deunaWaiting, setDeunaWaiting] = useState(false);
+
+  // Gateway fee calculation
+  // DeUna = 0% comisión, Kushki = 2.95% + $0.25 fijo
+  // La comisión se descuenta del platformFee (35%), nunca del escrowFund
+  const calcGatewayFee = (method) => {
+    if (method === 'kushki') return totalInvestment * 0.0295 + 0.25;
+    return 0; // DeUna, card, transfer, balance = sin comisión de gateway
+  };
+  const gatewayFeeAmount = calcGatewayFee(paymentMethod);
+  const netPlatformFee = platformFee - gatewayFeeAmount; // Lo que queda para Survey593
 
   const [questions, setQuestions] = useState([
     {
@@ -152,6 +168,30 @@ export const CreateSurveyWizard = () => {
         );
         return;
       }
+    } else if (paymentMethod === 'deuna') {
+      // TODO: integración real con webhook de DeUna en producción
+      if (!deunaPhone.trim() || deunaPhone.replace(/\D/g, '').length < 10) {
+        setErrorMsg('Ingresa un número de celular ecuatoriano válido (10 dígitos) vinculado a DeUna.');
+        return;
+      }
+      if (!deunaQrGenerated) {
+        setErrorMsg('Primero genera el código QR y espera la confirmación desde la app DeUna.');
+        return;
+      }
+    } else if (paymentMethod === 'kushki') {
+      // TODO: integración real con SDK de Kushki en producción
+      if (!cardNumber.trim() || cardNumber.replace(/\s/g, '').length < 15) {
+        setErrorMsg('Por favor ingresa un número de tarjeta de crédito/débito válido (16 dígitos).');
+        return;
+      }
+      if (!cardExpiry.trim() || !cardExpiry.includes('/')) {
+        setErrorMsg('Ingresa la fecha de expiración en formato MM/AA.');
+        return;
+      }
+      if (!cardCvv.trim() || cardCvv.length < 3) {
+        setErrorMsg('Ingresa el código de seguridad CVV (3 o 4 dígitos).');
+        return;
+      }
     }
 
     setIsFinancing(true);
@@ -197,19 +237,29 @@ export const CreateSurveyWizard = () => {
         rewardPerResponse,
         escrowFund,
         platformFee,
+        gatewayFeeAmount,
+        netPlatformFee,
         totalInvestment,
         paymentMethod:
           paymentMethod === 'card'
             ? `Tarjeta de Crédito/Débito terminada en •••• ${cardNumber.slice(-4)}`
             : paymentMethod === 'transfer'
-            ? `Transferencia ${transferBank} (Ref: ${transferRef})`
-            : 'Débito de Saldo Corporativo en Plataforma',
+              ? `Transferencia ${transferBank} (Ref: ${transferRef})`
+              : paymentMethod === 'deuna'
+                ? `Billetera Digital DeUna (Cel: •••${deunaPhone.slice(-4)})`
+                : paymentMethod === 'kushki'
+                  ? `Tarjeta vía Kushki 3DS terminada en •••• ${cardNumber.slice(-4)}`
+                  : 'Débito de Saldo Corporativo en Plataforma',
+        paymentMethodKey: paymentMethod,
         date: new Date().toISOString(),
         surveyId: createdSurvey.id,
       };
 
       setIsFinancing(false);
       setPaymentSuccessReceipt(receipt);
+      // Reset estado de DeUna para que la próxima campaña no arrastre el QR/confirmación anterior
+      setDeunaQrGenerated(false);
+      setDeunaWaiting(false);
     }, 1500);
   };
 
@@ -223,641 +273,874 @@ export const CreateSurveyWizard = () => {
           <ArrowLeft className="w-4 h-4" /> Volver al Dashboard
         </button>
 
-      <div>
-        <h1 className="text-2xl font-black text-white">Crear y Financiar Campaña de Estudio ✏️</h1>
-        <p className="text-xs text-slate-400 mt-1">
-          {currentUser.company ? `${currentUser.company} · ` : ''}Fondea el presupuesto en custodia (Escrow) y activa tu estudio en 24 horas.
-        </p>
-      </div>
+        <div>
+          <h1 className="text-2xl font-black text-white">Crear y Financiar Campaña de Estudio ✏️</h1>
+          <p className="text-xs text-slate-400 mt-1">
+            {currentUser.company ? `${currentUser.company} · ` : ''}Fondea el presupuesto en custodia (Escrow) y activa tu estudio en 24 horas.
+          </p>
+        </div>
 
-      {/* Wizard Step Indicator */}
-      <div className="flex items-center justify-between p-4 glass-card">
-        {[
-          { num: 1, label: 'Información' },
-          { num: 2, label: 'Presupuesto & Escrow' },
-          { num: 3, label: 'Preguntas' },
-          { num: 4, label: 'Pasarela de Pago' },
-        ].map((s) => (
-          <div key={s.num} className="flex items-center gap-2">
-            <div
-              className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black transition-all ${
-                step === s.num
+        {/* Wizard Step Indicator */}
+        <div className="flex items-center justify-between p-4 glass-card">
+          {[
+            { num: 1, label: 'Información' },
+            { num: 2, label: 'Presupuesto & Escrow' },
+            { num: 3, label: 'Preguntas' },
+            { num: 4, label: 'Pasarela de Pago' },
+          ].map((s) => (
+            <div key={s.num} className="flex items-center gap-2">
+              <div
+                className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black transition-all ${step === s.num
                   ? 'bg-primary text-white shadow-glow-sm scale-110'
                   : step > s.num
-                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                  : 'bg-slate-800 text-slate-400'
-              }`}
-            >
-              {step > s.num ? '✓' : s.num}
-            </div>
-            <span
-              className={`text-xs font-semibold hidden sm:inline ${
-                step === s.num ? 'text-white' : 'text-slate-400'
-              }`}
-            >
-              {s.label}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      {/* Step 1: Info */}
-      {step === 1 && (
-        <div className="glass-card p-6 space-y-4 animate-fade-in">
-          <div className="flex items-center justify-between">
-            <h3 className="text-base font-bold text-white">1. Información de la Campaña</h3>
-            {currentOrg && (
-              <span className="text-xs text-primary-light font-semibold flex items-center gap-1.5">
-                <Building2 className="w-3.5 h-3.5" />
-                {currentOrg.name}
-              </span>
-            )}
-          </div>
-
-          {/* Quick Template Selector Banner */}
-          <div className="p-4 rounded-stitch bg-gradient-to-r from-primary/15 via-slate-900 to-secondary/15 border border-primary/30 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs font-bold text-white">
-                <Sparkles className="w-4 h-4 text-primary-light" />
-                <span>¿Deseas lanzar tu encuesta en 1 clic? Selecciona una Plantilla:</span>
-              </div>
-              <Badge variant="primary" className="text-[10px]">
-                {currentOrg?.category === 'education' ? 'Colegios & Escuelas' : 'Empresas & Negocios'}
-              </Badge>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-              {(currentOrg?.category === 'education' ? EDUCATION_TEMPLATES : BUSINESS_TEMPLATES).map((tpl) => (
-                <button
-                  key={tpl.id}
-                  type="button"
-                  onClick={() => {
-                    const periodSuffix = currentPeriod ? ` (${currentPeriod.name})` : '';
-                    const orgPrefix = currentOrg?.name ? `${currentOrg.name} - ` : '';
-                    setTitle(`${tpl.name} - ${orgPrefix}${periodSuffix}`.trim());
-                    setDescription(tpl.description);
-                    setCategory(tpl.category);
-                    setEstimatedTime(tpl.estimatedTime);
-                    setRewardPerResponse(tpl.rewardPerResponse);
-                    setQuestions(tpl.questions);
-                  }}
-                  className="p-2.5 rounded-stitch bg-slate-900/80 hover:bg-primary/20 border border-slate-700 hover:border-primary/60 text-left transition-all group"
-                >
-                  <div className="text-xl mb-1">{tpl.icon}</div>
-                  <div className="text-xs font-bold text-white group-hover:text-primary-light line-clamp-1">{tpl.name}</div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">{tpl.questions.length} preguntas · ${tpl.rewardPerResponse.toFixed(2)}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">Título del Estudio</label>
-            <input
-              type="text"
-              required
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Ej: Estudio de Mercado para Nueva Sucursal en Quito - Orión"
-              className="w-full px-3.5 py-2.5 rounded-stitch bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-primary"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">Descripción / Propósito</label>
-            <textarea
-              rows={3}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Explica a los encuestados el objetivo de esta investigación..."
-              className="w-full px-3.5 py-2.5 rounded-stitch bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-primary"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Sector / Categoría</label>
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-stitch bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-primary"
+                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                    : 'bg-slate-800 text-slate-400'
+                  }`}
               >
-                <option value="Tecnología">Tecnología</option>
-                <option value="Moda y Calzado">Moda y Calzado</option>
-                <option value="Alimentación y Restaurantes">Alimentación y Restaurantes</option>
-                <option value="Salud y Medicina">Salud y Medicina</option>
-                <option value="Banca y Finanzas">Banca y Finanzas</option>
-                <option value="Educación y Formación">Educación y Formación</option>
-              </select>
+                {step > s.num ? '✓' : s.num}
+              </div>
+              <span
+                className={`text-xs font-semibold hidden sm:inline ${step === s.num ? 'text-white' : 'text-slate-400'
+                  }`}
+              >
+                {s.label}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Step 1: Info */}
+        {step === 1 && (
+          <div className="glass-card p-6 space-y-4 animate-fade-in">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-white">1. Información de la Campaña</h3>
+              {currentOrg && (
+                <span className="text-xs text-primary-light font-semibold flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5" />
+                  {currentOrg.name}
+                </span>
+              )}
+            </div>
+
+            {/* Quick Template Selector Banner */}
+            <div className="p-4 rounded-stitch bg-gradient-to-r from-primary/15 via-slate-900 to-secondary/15 border border-primary/30 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs font-bold text-white">
+                  <Sparkles className="w-4 h-4 text-primary-light" />
+                  <span>¿Deseas lanzar tu encuesta en 1 clic? Selecciona una Plantilla:</span>
+                </div>
+                <Badge variant="primary" className="text-[10px]">
+                  {currentOrg?.category === 'education' ? 'Colegios & Escuelas' : 'Empresas & Negocios'}
+                </Badge>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                {(currentOrg?.category === 'education' ? EDUCATION_TEMPLATES : BUSINESS_TEMPLATES).map((tpl) => (
+                  <button
+                    key={tpl.id}
+                    type="button"
+                    onClick={() => {
+                      const periodSuffix = currentPeriod ? ` (${currentPeriod.name})` : '';
+                      const orgPrefix = currentOrg?.name ? `${currentOrg.name} - ` : '';
+                      setTitle(`${tpl.name} - ${orgPrefix}${periodSuffix}`.trim());
+                      setDescription(tpl.description);
+                      setCategory(tpl.category);
+                      setEstimatedTime(tpl.estimatedTime);
+                      setRewardPerResponse(tpl.rewardPerResponse);
+                      setQuestions(tpl.questions);
+                    }}
+                    className="p-2.5 rounded-stitch bg-slate-900/80 hover:bg-primary/20 border border-slate-700 hover:border-primary/60 text-left transition-all group"
+                  >
+                    <div className="text-xl mb-1">{tpl.icon}</div>
+                    <div className="text-xs font-bold text-white group-hover:text-primary-light line-clamp-1">{tpl.name}</div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">{tpl.questions.length} preguntas · ${tpl.rewardPerResponse.toFixed(2)}</div>
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Tiempo Estimado (Minutos)</label>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">Título del Estudio</label>
               <input
-                type="number"
-                min="1"
-                max="15"
-                value={estimatedTime}
-                onChange={(e) => setEstimatedTime(e.target.value)}
+                type="text"
+                required
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Ej: Estudio de Mercado para Nueva Sucursal en Quito - Orión"
                 className="w-full px-3.5 py-2.5 rounded-stitch bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-primary"
               />
             </div>
-          </div>
-
-          <div className="flex justify-end pt-4">
-            <Button
-              variant="primary"
-              disabled={!title.trim()}
-              onClick={() => setStep(2)}
-              icon={ArrowRight}
-            >
-              Siguiente: Presupuesto & Escrow
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Step 2: Budget & Escrow Breakdown */}
-      {step === 2 && (
-        <div className="glass-card p-6 space-y-4 animate-fade-in">
-          <h3 className="text-base font-bold text-white mb-1">2. Presupuesto y Custodia de Fondos (Escrow)</h3>
-          <p className="text-xs text-slate-400">
-            Define cuánto recibirá cada ciudadano por su tiempo y la cantidad de respuestas verificadas que necesitas.
-          </p>
-
-          <div className="grid grid-cols-2 gap-4 pt-2">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Recompensa por Encuestado ($ USD / persona)
-              </label>
-              <input
-                type="number"
-                step="0.25"
-                min="0.5"
-                value={rewardPerResponse}
-                onChange={(e) => setRewardPerResponse(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-stitch bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-primary font-bold"
-              />
-              <span className="text-[10px] text-slate-400 mt-1 block">El encuestado recibe este valor íntegro en su wallet.</span>
-            </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Muestra Objetivo (Nº de Personas)
-              </label>
-              <input
-                type="number"
-                min="10"
-                step="10"
-                value={targetResponses}
-                onChange={(e) => setTargetResponses(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-stitch bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-primary font-bold"
+              <label className="block text-xs font-semibold text-slate-300 mb-1">Descripción / Propósito</label>
+              <textarea
+                rows={3}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Explica a los encuestados el objetivo de esta investigación..."
+                className="w-full px-3.5 py-2.5 rounded-stitch bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-primary"
               />
-              <span className="text-[10px] text-slate-400 mt-1 block">Mínimo 10 encuestados verificados sin bots.</span>
-            </div>
-          </div>
-
-          {/* Desglose Financiero */}
-          <div className="p-5 rounded-stitch-lg bg-slate-950/80 border border-slate-700/80 my-4 space-y-3">
-            <div className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span>Desglose Financiero Transparente (Fondo Pre-Pago Escrow)</span>
             </div>
 
-            <div className="space-y-2 text-xs divide-y divide-slate-800">
-              <div className="flex justify-between pt-1">
-                <span className="text-slate-300">💰 Bolsa de Recompensas en Custodia (Para Usuarios):</span>
-                <span className="font-mono font-bold text-emerald-400">${escrowFund.toFixed(2)} USD</span>
-              </div>
-              <div className="flex justify-between pt-2">
-                <span className="text-slate-300">🏢 Tarifa de Plataforma Survey 593 (35% Take-Rate):</span>
-                <span className="font-mono font-semibold text-slate-300">${platformFee.toFixed(2)} USD</span>
-              </div>
-              <div className="flex justify-between pt-2.5 text-sm font-black border-t border-slate-700">
-                <span className="text-white">Inversión Total a Financiar:</span>
-                <span className="text-primary-light font-mono text-base">${totalInvestment.toFixed(2)} USD</span>
-              </div>
-            </div>
-
-            <div className="text-[11px] text-slate-400 bg-slate-900 p-2.5 rounded-stitch border border-slate-800 flex items-start gap-2">
-              <Lock className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
-              <span>
-                <strong>Garantía de Custodia (Escrow):</strong> Los <strong>${escrowFund.toFixed(2)} USD</strong> se congelan en una bolsa protegida. Solo se debitan a las billeteras de los ciudadanos a medida que envían respuestas verificadas con validación anti-fraude.
-              </span>
-            </div>
-          </div>
-
-          <div className="flex justify-between pt-2">
-            <Button variant="outline" onClick={() => setStep(1)}>
-              Atrás
-            </Button>
-            <Button variant="primary" onClick={() => setStep(3)} icon={ArrowRight}>
-              Siguiente: Diseñar Preguntas
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Step 3: Questions */}
-      {step === 3 && (
-        <div className="glass-card p-6 space-y-6 animate-fade-in">
-          <div className="flex items-center justify-between">
-            <h3 className="text-base font-bold text-white">3. Preguntas del Cuestionario ({questions.length})</h3>
-            <span className="text-xs text-slate-400">Recomendado: 2 a 5 preguntas</span>
-          </div>
-
-          {/* List */}
-          <div className="space-y-3">
-            {questions.map((q, i) => (
-              <div key={i} className="p-4 rounded-stitch bg-slate-900/60 border border-slate-700/60 flex items-center justify-between">
-                <div>
-                  <span className="text-[11px] font-bold text-primary-light uppercase tracking-wider">
-                    P{i + 1}. [{q.type}]
-                  </span>
-                  <div className="text-sm font-semibold text-white mt-0.5">{q.text}</div>
-                </div>
-                <button
-                  onClick={() => handleRemoveQuestion(i)}
-                  className="text-slate-400 hover:text-rose-400 p-1.5 transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
-          </div>
-
-          {/* Question Builder */}
-          <div className="p-5 rounded-stitch bg-slate-900/90 border border-slate-700/80 space-y-3">
-            <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">➕ Agregar Nueva Pregunta</h4>
-
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-[11px] font-semibold text-slate-400 mb-1">Tipo de Pregunta</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Sector / Categoría</label>
                 <select
-                  value={newQType}
-                  onChange={(e) => setNewQType(e.target.value)}
-                  className="w-full px-3 py-2 rounded-stitch bg-slate-800 border border-slate-700 text-white text-xs focus:outline-none focus:border-primary"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-stitch bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-primary"
                 >
-                  <option value="multiple">Opción Múltiple</option>
-                  <option value="likert">Escala Likert (1 a 5)</option>
-                  <option value="yesno">Sí / No</option>
-                  <option value="text">Texto Abierto</option>
+                  <option value="Tecnología">Tecnología</option>
+                  <option value="Moda y Calzado">Moda y Calzado</option>
+                  <option value="Alimentación y Restaurantes">Alimentación y Restaurantes</option>
+                  <option value="Salud y Medicina">Salud y Medicina</option>
+                  <option value="Banca y Finanzas">Banca y Finanzas</option>
+                  <option value="Educación y Formación">Educación y Formación</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-[11px] font-semibold text-slate-400 mb-1">Texto de la Pregunta</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Tiempo Estimado (Minutos)</label>
                 <input
-                  type="text"
-                  value={newQText}
-                  onChange={(e) => setNewQText(e.target.value)}
-                  placeholder="¿Cuál es tu opinión sobre...?"
-                  className="w-full px-3 py-2 rounded-stitch bg-slate-800 border border-slate-700 text-white text-xs focus:outline-none focus:border-primary"
+                  type="number"
+                  min="1"
+                  max="15"
+                  value={estimatedTime}
+                  onChange={(e) => setEstimatedTime(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-stitch bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-primary"
                 />
               </div>
             </div>
 
-            {newQType === 'multiple' && (
+            <div className="flex justify-end pt-4">
+              <Button
+                variant="primary"
+                disabled={!title.trim()}
+                onClick={() => setStep(2)}
+                icon={ArrowRight}
+              >
+                Siguiente: Presupuesto & Escrow
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 2: Budget & Escrow Breakdown */}
+        {step === 2 && (
+          <div className="glass-card p-6 space-y-4 animate-fade-in">
+            <h3 className="text-base font-bold text-white mb-1">2. Presupuesto y Custodia de Fondos (Escrow)</h3>
+            <p className="text-xs text-slate-400">
+              Define cuánto recibirá cada ciudadano por su tiempo y la cantidad de respuestas verificadas que necesitas.
+            </p>
+
+            <div className="grid grid-cols-2 gap-4 pt-2">
               <div>
-                <label className="block text-[11px] font-semibold text-slate-400 mb-1">
-                  Opciones (separadas por coma)
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Recompensa por Encuestado ($ USD / persona)
                 </label>
                 <input
-                  type="text"
-                  value={newQOptions}
-                  onChange={(e) => setNewQOptions(e.target.value)}
-                  className="w-full px-3 py-2 rounded-stitch bg-slate-800 border border-slate-700 text-white text-xs focus:outline-none focus:border-primary"
+                  type="number"
+                  step="0.25"
+                  min="0.5"
+                  value={rewardPerResponse}
+                  onChange={(e) => setRewardPerResponse(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-stitch bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-primary font-bold"
                 />
-              </div>
-            )}
-
-            <Button size="sm" variant="secondary" onClick={handleAddQuestion} icon={Plus}>
-              Añadir Pregunta
-            </Button>
-          </div>
-
-          <div className="flex justify-between pt-4">
-            <Button variant="outline" onClick={() => setStep(2)}>
-              Atrás
-            </Button>
-            <Button
-              variant="primary"
-              disabled={questions.length === 0}
-              onClick={() => setStep(4)}
-              icon={ArrowRight}
-            >
-              Siguiente: Pasarela de Pago
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Step 4: PASARELA DE PAGO REAL (Tarjeta o Transferencia Bancaria Directa) */}
-      {step === 4 && (
-        <div className="glass-card p-6 space-y-5 animate-fade-in">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-base font-bold text-white">4. Pasarela de Pago & Fondeo de Campaña</h3>
-              <p className="text-xs text-slate-400">
-                Paga de forma segura para activar el estudio y reservar los fondos de los encuestados.
-              </p>
-            </div>
-            <div className="text-right">
-              <span className="text-xs text-slate-400">Total a Pagar:</span>
-              <div className="text-xl font-black text-primary-light font-mono">${totalInvestment.toFixed(2)} USD</div>
-            </div>
-          </div>
-
-          {errorMsg && (
-            <div className="p-3 rounded-stitch bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-semibold flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              <span>{errorMsg}</span>
-            </div>
-          )}
-
-          {/* Selector de Método de Pago */}
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
-              Elige cómo deseas pagar:
-            </label>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-              {/* Opción 1: Tarjeta de Crédito / Débito */}
-              <button
-                type="button"
-                onClick={() => setPaymentMethod('card')}
-                className={`p-3.5 rounded-stitch border text-left transition-all ${
-                  paymentMethod === 'card'
-                    ? 'border-primary bg-primary/10 text-white shadow-glow-sm'
-                    : 'border-slate-700 bg-slate-900/60 text-slate-400 hover:border-slate-600'
-                }`}
-              >
-                <CreditCard className="w-5 h-5 text-primary-light mb-1.5" />
-                <div className="text-xs font-bold text-white">Tarjeta de Crédito/Débito</div>
-                <div className="text-[10px] text-slate-400 mt-0.5">Visa, Mastercard, Diners</div>
-              </button>
-
-              {/* Opción 2: Transferencia Bancaria Directa */}
-              <button
-                type="button"
-                onClick={() => setPaymentMethod('transfer')}
-                className={`p-3.5 rounded-stitch border text-left transition-all ${
-                  paymentMethod === 'transfer'
-                    ? 'border-emerald-500 bg-emerald-500/10 text-white shadow-glow-sm'
-                    : 'border-slate-700 bg-slate-900/60 text-slate-400 hover:border-slate-600'
-                }`}
-              >
-                <Building2 className="w-5 h-5 text-emerald-400 mb-1.5" />
-                <div className="text-xs font-bold text-white">Transferencia Bancaria</div>
-                <div className="text-[10px] text-slate-400 mt-0.5">Banco Pichincha / Produbanco</div>
-              </button>
-
-              {/* Opción 3: Saldo Pre-pagado */}
-              <button
-                type="button"
-                onClick={() => setPaymentMethod('balance')}
-                className={`p-3.5 rounded-stitch border text-left transition-all ${
-                  paymentMethod === 'balance'
-                    ? 'border-secondary bg-secondary/10 text-white shadow-glow-sm'
-                    : 'border-slate-700 bg-slate-900/60 text-slate-400 hover:border-slate-600'
-                }`}
-              >
-                <Wallet className="w-5 h-5 text-secondary-light mb-1.5" />
-                <div className="text-xs font-bold text-white">Saldo en Cuenta</div>
-                <div className="text-[10px] text-slate-400 mt-0.5">
-                  ${(currentUser.balance || 0).toFixed(2)} USD disponibles
-                </div>
-              </button>
-            </div>
-          </div>
-
-          {/* ========================================================================= */}
-          {/* CASO 1: FORMULARIO PASARELA TARJETA DE CRÉDITO / DÉBITO                   */}
-          {/* ========================================================================= */}
-          {paymentMethod === 'card' && (
-            <div className="p-5 rounded-stitch-lg bg-slate-900/90 border border-slate-700/80 space-y-4 animate-fade-in">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <div className="flex items-center gap-2 text-xs font-bold text-white">
-                  <Lock className="w-4 h-4 text-emerald-400" />
-                  <span>Pasarela de Pago Segura con Cifrado SSL 256-bit</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] font-black tracking-widest text-slate-400">VISA / MASTERCARD</span>
-                </div>
+                <span className="text-[10px] text-slate-400 mt-1 block">El encuestado recibe este valor íntegro en su wallet.</span>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Nombre en la Tarjeta</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Muestra Objetivo (Nº de Personas)
+                </label>
                 <input
-                  type="text"
-                  required
-                  value={cardHolder}
-                  onChange={(e) => setCardHolder(e.target.value)}
-                  placeholder="Ej: ORIÓN TECHNOLOGIES S.A."
-                  className="w-full px-3.5 py-2.5 rounded-stitch bg-slate-950 border border-slate-700 text-white text-xs focus:outline-none focus:border-primary uppercase font-mono"
+                  type="number"
+                  min="10"
+                  step="10"
+                  value={targetResponses}
+                  onChange={(e) => setTargetResponses(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-stitch bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:border-primary font-bold"
                 />
+                <span className="text-[10px] text-slate-400 mt-1 block">Mínimo 10 encuestados verificados sin bots.</span>
+              </div>
+            </div>
+
+            {/* Desglose Financiero */}
+            <div className="p-5 rounded-stitch-lg bg-slate-950/80 border border-slate-700/80 my-4 space-y-3">
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>Desglose Financiero Transparente (Fondo Pre-Pago Escrow)</span>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Número de Tarjeta</label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    maxLength="19"
-                    required
-                    value={cardNumber}
-                    onChange={(e) => {
-                      // Format with spaces: 4444 4444 4444 4444
-                      const val = e.target.value.replace(/\D/g, '').replace(/(.{4})/g, '$1 ').trim();
-                      setCardNumber(val);
-                    }}
-                    placeholder="4000 1234 5678 9010"
-                    className="w-full pl-10 pr-3.5 py-2.5 rounded-stitch bg-slate-950 border border-slate-700 text-white text-xs focus:outline-none focus:border-primary font-mono tracking-wider"
-                  />
-                  <CreditCard className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+              <div className="space-y-2 text-xs divide-y divide-slate-800">
+                <div className="flex justify-between pt-1">
+                  <span className="text-slate-300">💰 Bolsa de Recompensas en Custodia (Para Usuarios):</span>
+                  <span className="font-mono font-bold text-emerald-400">${escrowFund.toFixed(2)} USD</span>
+                </div>
+                <div className="flex justify-between pt-2">
+                  <span className="text-slate-300">🏢 Tarifa de Plataforma Survey 593 (35% Take-Rate):</span>
+                  <span className="font-mono font-semibold text-slate-300">${platformFee.toFixed(2)} USD</span>
+                </div>
+                <div className="flex justify-between pt-2.5 text-sm font-black border-t border-slate-700">
+                  <span className="text-white">Inversión Total a Financiar:</span>
+                  <span className="text-primary-light font-mono text-base">${totalInvestment.toFixed(2)} USD</span>
                 </div>
               </div>
+
+              <div className="text-[11px] text-slate-400 bg-slate-900 p-2.5 rounded-stitch border border-slate-800 flex items-start gap-2">
+                <Lock className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+                <span>
+                  <strong>Garantía de Custodia (Escrow):</strong> Los <strong>${escrowFund.toFixed(2)} USD</strong> se congelan en una bolsa protegida. Solo se debitan a las billeteras de los ciudadanos a medida que envían respuestas verificadas con validación anti-fraude.
+                </span>
+              </div>
+            </div>
+
+            <div className="flex justify-between pt-2">
+              <Button variant="outline" onClick={() => setStep(1)}>
+                Atrás
+              </Button>
+              <Button variant="primary" onClick={() => setStep(3)} icon={ArrowRight}>
+                Siguiente: Diseñar Preguntas
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: Questions */}
+        {step === 3 && (
+          <div className="glass-card p-6 space-y-6 animate-fade-in">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-white">3. Preguntas del Cuestionario ({questions.length})</h3>
+              <span className="text-xs text-slate-400">Recomendado: 2 a 5 preguntas</span>
+            </div>
+
+            {/* List */}
+            <div className="space-y-3">
+              {questions.map((q, i) => (
+                <div key={i} className="p-4 rounded-stitch bg-slate-900/60 border border-slate-700/60 flex items-center justify-between">
+                  <div>
+                    <span className="text-[11px] font-bold text-primary-light uppercase tracking-wider">
+                      P{i + 1}. [{q.type}]
+                    </span>
+                    <div className="text-sm font-semibold text-white mt-0.5">{q.text}</div>
+                  </div>
+                  <button
+                    onClick={() => handleRemoveQuestion(i)}
+                    className="text-slate-400 hover:text-rose-400 p-1.5 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Question Builder */}
+            <div className="p-5 rounded-stitch bg-slate-900/90 border border-slate-700/80 space-y-3">
+              <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">➕ Agregar Nueva Pregunta</h4>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Fecha de Expiración</label>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">Tipo de Pregunta</label>
+                  <select
+                    value={newQType}
+                    onChange={(e) => setNewQType(e.target.value)}
+                    className="w-full px-3 py-2 rounded-stitch bg-slate-800 border border-slate-700 text-white text-xs focus:outline-none focus:border-primary"
+                  >
+                    <option value="multiple">Opción Múltiple</option>
+                    <option value="likert">Escala Likert (1 a 5)</option>
+                    <option value="yesno">Sí / No</option>
+                    <option value="text">Texto Abierto</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">Texto de la Pregunta</label>
                   <input
                     type="text"
-                    maxLength="5"
+                    value={newQText}
+                    onChange={(e) => setNewQText(e.target.value)}
+                    placeholder="¿Cuál es tu opinión sobre...?"
+                    className="w-full px-3 py-2 rounded-stitch bg-slate-800 border border-slate-700 text-white text-xs focus:outline-none focus:border-primary"
+                  />
+                </div>
+              </div>
+
+              {newQType === 'multiple' && (
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                    Opciones (separadas por coma)
+                  </label>
+                  <input
+                    type="text"
+                    value={newQOptions}
+                    onChange={(e) => setNewQOptions(e.target.value)}
+                    className="w-full px-3 py-2 rounded-stitch bg-slate-800 border border-slate-700 text-white text-xs focus:outline-none focus:border-primary"
+                  />
+                </div>
+              )}
+
+              <Button size="sm" variant="secondary" onClick={handleAddQuestion} icon={Plus}>
+                Añadir Pregunta
+              </Button>
+            </div>
+
+            <div className="flex justify-between pt-4">
+              <Button variant="outline" onClick={() => setStep(2)}>
+                Atrás
+              </Button>
+              <Button
+                variant="primary"
+                disabled={questions.length === 0}
+                onClick={() => setStep(4)}
+                icon={ArrowRight}
+              >
+                Siguiente: Pasarela de Pago
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 4: PASARELA DE PAGO REAL (Tarjeta o Transferencia Bancaria Directa) */}
+        {step === 4 && (
+          <div className="glass-card p-6 space-y-5 animate-fade-in">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-white">4. Pasarela de Pago & Fondeo de Campaña</h3>
+                <p className="text-xs text-slate-400">
+                  Paga de forma segura para activar el estudio y reservar los fondos de los encuestados.
+                </p>
+              </div>
+              <div className="text-right">
+                <span className="text-xs text-slate-400">Total a Pagar:</span>
+                <div className="text-xl font-black text-primary-light font-mono">${totalInvestment.toFixed(2)} USD</div>
+              </div>
+            </div>
+
+            {errorMsg && (
+              <div className="p-3 rounded-stitch bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-semibold flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>{errorMsg}</span>
+              </div>
+            )}
+
+            {/* Selector de Método de Pago */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
+                Elige cómo deseas pagar:
+              </label>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+                {/* Opción 1: Tarjeta de Crédito / Débito */}
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('card')}
+                  className={`p-3.5 rounded-stitch border text-left transition-all ${paymentMethod === 'card'
+                    ? 'border-primary bg-primary/10 text-white shadow-glow-sm'
+                    : 'border-slate-700 bg-slate-900/60 text-slate-400 hover:border-slate-600'
+                    }`}
+                >
+                  <CreditCard className="w-5 h-5 text-primary-light mb-1.5" />
+                  <div className="text-xs font-bold text-white">Tarjeta de Crédito/Débito</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">Visa, Mastercard, Diners</div>
+                </button>
+
+                {/* Opción 2: Transferencia Bancaria Directa */}
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('transfer')}
+                  className={`p-3.5 rounded-stitch border text-left transition-all ${paymentMethod === 'transfer'
+                    ? 'border-emerald-500 bg-emerald-500/10 text-white shadow-glow-sm'
+                    : 'border-slate-700 bg-slate-900/60 text-slate-400 hover:border-slate-600'
+                    }`}
+                >
+                  <Building2 className="w-5 h-5 text-emerald-400 mb-1.5" />
+                  <div className="text-xs font-bold text-white">Transferencia Bancaria</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">Banco Pichincha / Produbanco</div>
+                </button>
+
+                {/* Opción 3: Saldo Pre-pagado */}
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('balance')}
+                  className={`p-3.5 rounded-stitch border text-left transition-all ${paymentMethod === 'balance'
+                    ? 'border-secondary bg-secondary/10 text-white shadow-glow-sm'
+                    : 'border-slate-700 bg-slate-900/60 text-slate-400 hover:border-slate-600'
+                    }`}
+                >
+                  <Wallet className="w-5 h-5 text-secondary-light mb-1.5" />
+                  <div className="text-xs font-bold text-white">Saldo en Cuenta</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">
+                    ${(currentUser.balance || 0).toFixed(2)} USD disponibles
+                  </div>
+                </button>
+
+                {/* Opción 4: DeUna – Billetera Digital Ecuatoriana */}
+                <button
+                  type="button"
+                  onClick={() => { setPaymentMethod('deuna'); setDeunaQrGenerated(false); setDeunaWaiting(false); }}
+                  className={`p-3.5 rounded-stitch border text-left transition-all relative ${paymentMethod === 'deuna'
+                    ? 'border-cyan-500 bg-cyan-500/10 text-white shadow-glow-sm'
+                    : 'border-slate-700 bg-slate-900/60 text-slate-400 hover:border-slate-600'
+                    }`}
+                >
+                  <Smartphone className="w-5 h-5 text-cyan-400 mb-1.5" />
+                  <div className="text-xs font-bold text-white">DeUna</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">Billetera Bco. Pichincha</div>
+                  <span className="absolute -top-2 -right-1 px-1.5 py-0.5 rounded-full bg-cyan-500 text-[8px] font-black text-white shadow-lg whitespace-nowrap">
+                    Sin comisión ✓
+                  </span>
+                </button>
+
+                {/* Opción 5: Kushki – Pasarela de Tarjeta con 3DS */}
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('kushki')}
+                  className={`p-3.5 rounded-stitch border text-left transition-all ${paymentMethod === 'kushki'
+                    ? 'border-orange-500 bg-orange-500/10 text-white shadow-glow-sm'
+                    : 'border-slate-700 bg-slate-900/60 text-slate-400 hover:border-slate-600'
+                    }`}
+                >
+                  <ShieldCheck className="w-5 h-5 text-orange-400 mb-1.5" />
+                  <div className="text-xs font-bold text-white">Kushki</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">Tarjeta 3DS · 2.95%</div>
+                </button>
+              </div>
+            </div>
+
+            {/* ========================================================================= */}
+            {/* CASO 1: FORMULARIO PASARELA TARJETA DE CRÉDITO / DÉBITO                   */}
+            {/* ========================================================================= */}
+            {paymentMethod === 'card' && (
+              <div className="p-5 rounded-stitch-lg bg-slate-900/90 border border-slate-700/80 space-y-4 animate-fade-in">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div className="flex items-center gap-2 text-xs font-bold text-white">
+                    <Lock className="w-4 h-4 text-emerald-400" />
+                    <span>Pasarela de Pago Segura con Cifrado SSL 256-bit</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-black tracking-widest text-slate-400">VISA / MASTERCARD</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Nombre en la Tarjeta</label>
+                  <input
+                    type="text"
                     required
-                    value={cardExpiry}
-                    onChange={(e) => {
-                      let val = e.target.value.replace(/\D/g, '');
-                      if (val.length >= 2) val = `${val.slice(0, 2)}/${val.slice(2, 4)}`;
-                      setCardExpiry(val);
-                    }}
-                    placeholder="MM/AA (ej: 08/28)"
-                    className="w-full px-3.5 py-2.5 rounded-stitch bg-slate-950 border border-slate-700 text-white text-xs focus:outline-none focus:border-primary font-mono text-center"
+                    value={cardHolder}
+                    onChange={(e) => setCardHolder(e.target.value)}
+                    placeholder="Ej: ORIÓN TECHNOLOGIES S.A."
+                    className="w-full px-3.5 py-2.5 rounded-stitch bg-slate-950 border border-slate-700 text-white text-xs focus:outline-none focus:border-primary uppercase font-mono"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Código de Seguridad (CVV)</label>
-                  <input
-                    type="password"
-                    maxLength="4"
-                    required
-                    value={cardCvv}
-                    onChange={(e) => setCardCvv(e.target.value.replace(/\D/g, ''))}
-                    placeholder="•••"
-                    className="w-full px-3.5 py-2.5 rounded-stitch bg-slate-950 border border-slate-700 text-white text-xs focus:outline-none focus:border-primary font-mono text-center"
-                  />
-                </div>
-              </div>
-
-              <div className="p-3 rounded-stitch bg-slate-950/60 border border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
-                <span>Total a debitar de tu tarjeta:</span>
-                <span className="text-emerald-400 font-bold text-sm">${totalInvestment.toFixed(2)} USD</span>
-              </div>
-            </div>
-          )}
-
-          {/* ========================================================================= */}
-          {/* CASO 2: TRANSFERENCIA BANCARIA EMPRESARIAL (DATOS OFICIALES DE KOLAB)      */}
-          {/* ========================================================================= */}
-          {paymentMethod === 'transfer' && (
-            <div className="p-5 rounded-stitch-lg bg-slate-900/90 border border-emerald-500/40 space-y-4 animate-fade-in">
-              <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 border-b border-slate-800 pb-2.5">
-                <Building2 className="w-4 h-4" />
-                <span>Datos Bancarios para Transferencia Empresarial (Red SPI Ecuador)</span>
-              </div>
-
-              <div className="bg-slate-950 p-3.5 rounded-stitch border border-slate-800 text-xs space-y-2">
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">Institución Financiera:</span>
-                  <span className="font-bold text-white">BANCO PICHINCHA</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">Tipo de Cuenta:</span>
-                  <span className="font-semibold text-white">Cuenta Corriente Empresarial</span>
-                </div>
-                <div className="flex justify-between items-center bg-slate-900/80 p-2 rounded-stitch border border-slate-700">
-                  <span className="text-slate-300 font-medium">Número de Cuenta:</span>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-emerald-400 text-sm">2100849201</span>
-                    <button
-                      type="button"
-                      onClick={handleCopyAccount}
-                      className="text-slate-400 hover:text-white p-1"
-                      title="Copiar número de cuenta"
-                    >
-                      {copiedAccount ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    </button>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Número de Tarjeta</label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      maxLength="19"
+                      required
+                      value={cardNumber}
+                      onChange={(e) => {
+                        // Format with spaces: 4444 4444 4444 4444
+                        const val = e.target.value.replace(/\D/g, '').replace(/(.{4})/g, '$1 ').trim();
+                        setCardNumber(val);
+                      }}
+                      placeholder="4000 1234 5678 9010"
+                      className="w-full pl-10 pr-3.5 py-2.5 rounded-stitch bg-slate-950 border border-slate-700 text-white text-xs focus:outline-none focus:border-primary font-mono tracking-wider"
+                    />
+                    <CreditCard className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                   </div>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">Beneficiario / Razón Social:</span>
-                  <span className="font-bold text-white">KOLAB TECH S.A.S.</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">R.U.C.:</span>
-                  <span className="font-mono text-slate-200">1793204829001</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">Correo para Notificación:</span>
-                  <span className="font-semibold text-primary-light">facturacion@kolab.ec</span>
-                </div>
-                <div className="flex justify-between items-center pt-2 border-t border-slate-800">
-                  <span className="text-slate-400 font-bold">Monto Exacto a Transferir:</span>
-                  <span className="font-mono font-black text-emerald-400 text-sm">${totalInvestment.toFixed(2)} USD</span>
-                </div>
-              </div>
-
-              {/* Registro de la Transferencia Realizada */}
-              <div className="space-y-3 pt-1">
-                <label className="block text-xs font-bold text-slate-300">
-                  Registra los datos de tu comprobante de transferencia:
-                </label>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">Banco desde el que transferiste</label>
-                    <select
-                      value={transferBank}
-                      onChange={(e) => setTransferBank(e.target.value)}
-                      className="w-full px-3 py-2 rounded-stitch bg-slate-950 border border-slate-700 text-white text-xs focus:outline-none focus:border-primary"
-                    >
-                      <option value="Produbanco">Produbanco</option>
-                      <option value="Banco Pichincha">Banco Pichincha</option>
-                      <option value="Banco Guayaquil">Banco Guayaquil</option>
-                      <option value="Banco del Pacífico">Banco del Pacífico</option>
-                      <option value="Cooperativa JEP">Cooperativa JEP</option>
-                    </select>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Fecha de Expiración</label>
+                    <input
+                      type="text"
+                      maxLength="5"
+                      required
+                      value={cardExpiry}
+                      onChange={(e) => {
+                        let val = e.target.value.replace(/\D/g, '');
+                        if (val.length >= 2) val = `${val.slice(0, 2)}/${val.slice(2, 4)}`;
+                        setCardExpiry(val);
+                      }}
+                      placeholder="MM/AA (ej: 08/28)"
+                      className="w-full px-3.5 py-2.5 rounded-stitch bg-slate-950 border border-slate-700 text-white text-xs focus:outline-none focus:border-primary font-mono text-center"
+                    />
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">Número de Referencia / Comprobante</label>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Código de Seguridad (CVV)</label>
                     <input
-                      type="text"
+                      type="password"
+                      maxLength="4"
                       required
-                      value={transferRef}
-                      onChange={(e) => setTransferRef(e.target.value)}
-                      placeholder="Ej: REF-4920194"
-                      className="w-full px-3 py-2 rounded-stitch bg-slate-950 border border-slate-700 text-white text-xs focus:outline-none focus:border-primary font-mono font-bold"
+                      value={cardCvv}
+                      onChange={(e) => setCardCvv(e.target.value.replace(/\D/g, ''))}
+                      placeholder="•••"
+                      className="w-full px-3.5 py-2.5 rounded-stitch bg-slate-950 border border-slate-700 text-white text-xs focus:outline-none focus:border-primary font-mono text-center"
                     />
                   </div>
                 </div>
-              </div>
-            </div>
-          )}
 
-          {/* ========================================================================= */}
-          {/* CASO 3: SALDO PRE-CARGADO EN CUENTA CORPORATIVA                          */}
-          {/* ========================================================================= */}
-          {paymentMethod === 'balance' && (
-            <div className="p-5 rounded-stitch-lg bg-slate-900/90 border border-slate-700/80 space-y-3 animate-fade-in text-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-300">Saldo Disponible en tu Cuenta:</span>
-                <span className="font-mono font-bold text-white text-sm">${(currentUser.balance || 0).toFixed(2)} USD</span>
+                <div className="p-3 rounded-stitch bg-slate-950/60 border border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
+                  <span>Total a debitar de tu tarjeta:</span>
+                  <span className="text-emerald-400 font-bold text-sm">${totalInvestment.toFixed(2)} USD</span>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-300">Valor de la Campaña:</span>
-                <span className="font-mono font-bold text-primary-light text-sm">-${totalInvestment.toFixed(2)} USD</span>
-              </div>
-              <div className="border-t border-slate-800 pt-2 flex justify-between">
-                <span className="text-slate-400">Saldo Restante tras publicar:</span>
-                <span className="font-mono font-bold text-emerald-400">
-                  ${Math.max(0, (currentUser.balance || 0) - totalInvestment).toFixed(2)} USD
-                </span>
-              </div>
-            </div>
-          )}
+            )}
 
-          {/* Botones de Navegación y Pago */}
-          <div className="flex justify-between pt-4">
-            <Button variant="outline" onClick={() => setStep(3)}>
-              Atrás
-            </Button>
-            <Button
-              size="lg"
-              variant="primary"
-              disabled={isFinancing}
-              onClick={handlePublishAndFinance}
-              className="bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black hover:opacity-90 shadow-lg shadow-emerald-500/20 text-xs sm:text-sm"
-            >
-              {isFinancing ? (
-                <span className="flex items-center gap-2">
-                  <span className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
-                  Procesando Pago con Pasarela Bancaria...
-                </span>
-              ) : paymentMethod === 'card' ? (
-                `Pagar $${totalInvestment.toFixed(2)} USD con Tarjeta y Activar 🚀`
-              ) : paymentMethod === 'transfer' ? (
-                `Registrar Transferencia y Activar Campaña 🚀`
-              ) : (
-                `Debitar $${totalInvestment.toFixed(2)} USD y Activar Campaña 🚀`
-              )}
-            </Button>
+            {/* ========================================================================= */}
+            {/* CASO 2: TRANSFERENCIA BANCARIA EMPRESARIAL (DATOS OFICIALES DE KOLAB)      */}
+            {/* ========================================================================= */}
+            {paymentMethod === 'transfer' && (
+              <div className="p-5 rounded-stitch-lg bg-slate-900/90 border border-emerald-500/40 space-y-4 animate-fade-in">
+                <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 border-b border-slate-800 pb-2.5">
+                  <Building2 className="w-4 h-4" />
+                  <span>Datos Bancarios para Transferencia Empresarial (Red SPI Ecuador)</span>
+                </div>
+
+                <div className="bg-slate-950 p-3.5 rounded-stitch border border-slate-800 text-xs space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">Institución Financiera:</span>
+                    <span className="font-bold text-white">BANCO PICHINCHA</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">Tipo de Cuenta:</span>
+                    <span className="font-semibold text-white">Cuenta Corriente Empresarial</span>
+                  </div>
+                  <div className="flex justify-between items-center bg-slate-900/80 p-2 rounded-stitch border border-slate-700">
+                    <span className="text-slate-300 font-medium">Número de Cuenta:</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-bold text-emerald-400 text-sm">2100849201</span>
+                      <button
+                        type="button"
+                        onClick={handleCopyAccount}
+                        className="text-slate-400 hover:text-white p-1"
+                        title="Copiar número de cuenta"
+                      >
+                        {copiedAccount ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">Beneficiario / Razón Social:</span>
+                    <span className="font-bold text-white">KOLAB TECH S.A.S.</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">R.U.C.:</span>
+                    <span className="font-mono text-slate-200">1793204829001</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">Correo para Notificación:</span>
+                    <span className="font-semibold text-primary-light">facturacion@kolab.ec</span>
+                  </div>
+                  <div className="flex justify-between items-center pt-2 border-t border-slate-800">
+                    <span className="text-slate-400 font-bold">Monto Exacto a Transferir:</span>
+                    <span className="font-mono font-black text-emerald-400 text-sm">${totalInvestment.toFixed(2)} USD</span>
+                  </div>
+                </div>
+
+                {/* Registro de la Transferencia Realizada */}
+                <div className="space-y-3 pt-1">
+                  <label className="block text-xs font-bold text-slate-300">
+                    Registra los datos de tu comprobante de transferencia:
+                  </label>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-400 mb-1">Banco desde el que transferiste</label>
+                      <select
+                        value={transferBank}
+                        onChange={(e) => setTransferBank(e.target.value)}
+                        className="w-full px-3 py-2 rounded-stitch bg-slate-950 border border-slate-700 text-white text-xs focus:outline-none focus:border-primary"
+                      >
+                        <option value="Produbanco">Produbanco</option>
+                        <option value="Banco Pichincha">Banco Pichincha</option>
+                        <option value="Banco Guayaquil">Banco Guayaquil</option>
+                        <option value="Banco del Pacífico">Banco del Pacífico</option>
+                        <option value="Cooperativa JEP">Cooperativa JEP</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-400 mb-1">Número de Referencia / Comprobante</label>
+                      <input
+                        type="text"
+                        required
+                        value={transferRef}
+                        onChange={(e) => setTransferRef(e.target.value)}
+                        placeholder="Ej: REF-4920194"
+                        className="w-full px-3 py-2 rounded-stitch bg-slate-950 border border-slate-700 text-white text-xs focus:outline-none focus:border-primary font-mono font-bold"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ========================================================================= */}
+            {/* CASO 3: SALDO PRE-CARGADO EN CUENTA CORPORATIVA                          */}
+            {/* ========================================================================= */}
+            {paymentMethod === 'balance' && (
+              <div className="p-5 rounded-stitch-lg bg-slate-900/90 border border-slate-700/80 space-y-3 animate-fade-in text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-300">Saldo Disponible en tu Cuenta:</span>
+                  <span className="font-mono font-bold text-white text-sm">${(currentUser.balance || 0).toFixed(2)} USD</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-300">Valor de la Campaña:</span>
+                  <span className="font-mono font-bold text-primary-light text-sm">-${totalInvestment.toFixed(2)} USD</span>
+                </div>
+                <div className="border-t border-slate-800 pt-2 flex justify-between">
+                  <span className="text-slate-400">Saldo Restante tras publicar:</span>
+                  <span className="font-mono font-bold text-emerald-400">
+                    ${Math.max(0, (currentUser.balance || 0) - totalInvestment).toFixed(2)} USD
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* ========================================================================= */}
+            {/* CASO 4: DEUNA – BILLETERA DIGITAL ECUATORIANA (BANCO PICHINCHA)           */}
+            {/* TODO: integración real con webhook de DeUna en producción                 */}
+            {/* ========================================================================= */}
+            {paymentMethod === 'deuna' && (
+              <div className="p-5 rounded-stitch-lg bg-slate-900/90 border border-cyan-500/40 space-y-4 animate-fade-in">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div className="flex items-center gap-2 text-xs font-bold text-cyan-400">
+                    <Smartphone className="w-4 h-4" />
+                    <span>Pago con DeUna – Billetera Digital Banco Pichincha</span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 text-[10px] font-black border border-cyan-500/40">
+                    Sin comisión - Recomendado
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-stitch bg-cyan-950/30 border border-cyan-800/40 text-[11px] text-cyan-200 flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-cyan-400 flex-shrink-0 mt-0.5" />
+                  <span>
+                    <strong>0% de comisión de pasarela.</strong> DeUna no cobra comisión al comercio. El 100% del platformFee queda para Survey 593.
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Número de Celular vinculado a DeUna</label>
+                  <div className="relative">
+                    <input
+                      type="tel"
+                      maxLength="10"
+                      required
+                      value={deunaPhone}
+                      onChange={(e) => setDeunaPhone(e.target.value.replace(/\D/g, ''))}
+                      placeholder="09XX XXX XXXX"
+                      className="w-full pl-10 pr-3.5 py-2.5 rounded-stitch bg-slate-950 border border-slate-700 text-white text-xs focus:outline-none focus:border-cyan-500 font-mono tracking-wider"
+                    />
+                    <Smartphone className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                  </div>
+                </div>
+
+                {!deunaQrGenerated ? (
+                  <button
+                    type="button"
+                    disabled={!deunaPhone.trim() || deunaPhone.length < 10}
+                    onClick={() => {
+                      setDeunaWaiting(true);
+                      // Simula generación de QR y espera de confirmación
+                      setTimeout(() => {
+                        setDeunaQrGenerated(true);
+                        setDeunaWaiting(false);
+                      }, 2000);
+                    }}
+                    className="w-full py-2.5 rounded-stitch bg-cyan-600 hover:bg-cyan-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs flex items-center justify-center gap-2 transition-colors"
+                  >
+                    {deunaWaiting ? (
+                      <>
+                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Esperando confirmación desde la app DeUna...
+                      </>
+                    ) : (
+                      <>
+                        <QrCode className="w-4 h-4" />
+                        Generar Código QR para DeUna
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <div className="p-4 rounded-stitch bg-cyan-950/40 border border-cyan-500/50 text-center space-y-2">
+                    <div className="mx-auto w-24 h-24 bg-white rounded-lg flex items-center justify-center shadow-lg">
+                      <QrCode className="w-16 h-16 text-slate-900" />
+                    </div>
+                    <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-cyan-400">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Pago confirmado desde DeUna</span>
+                    </div>
+                    <p className="text-[10px] text-slate-400">Cel: •••{deunaPhone.slice(-4)} · Autorización simulada</p>
+                  </div>
+                )}
+
+                <div className="p-3 rounded-stitch bg-slate-950/60 border border-slate-800 text-[11px] text-slate-400 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span>Total a debitar desde DeUna:</span>
+                    <span className="text-cyan-400 font-bold text-sm">${totalInvestment.toFixed(2)} USD</span>
+                  </div>
+                  <div className="flex items-center justify-between border-t border-slate-800 pt-1.5">
+                    <span>Comisión de pasarela (descuento del platformFee):</span>
+                    <span className="text-cyan-300 font-bold">$0.00 USD (0%)</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>PlatformFee neto para Survey 593:</span>
+                    <span className="text-emerald-400 font-semibold">${netPlatformFee.toFixed(2)} USD</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ========================================================================= */}
+            {/* CASO 5: KUSHKI – PASARELA DE TARJETA CON 3D SECURE                       */}
+            {/* TODO: integración real con SDK de Kushki en producción                    */}
+            {/* ========================================================================= */}
+            {paymentMethod === 'kushki' && (
+              <div className="p-5 rounded-stitch-lg bg-slate-900/90 border border-orange-500/40 space-y-4 animate-fade-in">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div className="flex items-center gap-2 text-xs font-bold text-orange-400">
+                    <ShieldCheck className="w-4 h-4" />
+                    <span>Pasarela Kushki – Pago con Tarjeta 3D Secure</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-black tracking-widest text-slate-400">VISA / MASTERCARD</span>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-stitch bg-orange-950/30 border border-orange-800/40 text-[11px] text-orange-200 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-orange-400 flex-shrink-0 mt-0.5" />
+                  <span>
+                    <strong>Comisión Kushki: 2.95% + $0.25 fijo = ${gatewayFeeAmount.toFixed(2)} USD.</strong> Se descuenta de la Comisión Tecnológica Survey 593 (platformFee), no del fondo de encuestados (Escrow).
+                  </span>
+                </div>
+
+                <div className="text-[10px] text-slate-400 italic">
+                  Procesado vía Kushki · Cifrado SSL 256-bit · Autenticación 3D Secure
+                </div>
+
+                {/* Reutiliza el mismo formulario de tarjeta */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Nombre en la Tarjeta</label>
+                  <input
+                    type="text"
+                    required
+                    value={cardHolder}
+                    onChange={(e) => setCardHolder(e.target.value)}
+                    placeholder="Ej: ORIÓN TECHNOLOGIES S.A."
+                    className="w-full px-3.5 py-2.5 rounded-stitch bg-slate-950 border border-slate-700 text-white text-xs focus:outline-none focus:border-orange-500 uppercase font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Número de Tarjeta</label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      maxLength="19"
+                      required
+                      value={cardNumber}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, '').replace(/(.{4})/g, '$1 ').trim();
+                        setCardNumber(val);
+                      }}
+                      placeholder="4000 1234 5678 9010"
+                      className="w-full pl-10 pr-3.5 py-2.5 rounded-stitch bg-slate-950 border border-slate-700 text-white text-xs focus:outline-none focus:border-orange-500 font-mono tracking-wider"
+                    />
+                    <CreditCard className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Fecha de Expiración</label>
+                    <input
+                      type="text"
+                      maxLength="5"
+                      required
+                      value={cardExpiry}
+                      onChange={(e) => {
+                        let val = e.target.value.replace(/\D/g, '');
+                        if (val.length >= 2) val = `${val.slice(0, 2)}/${val.slice(2, 4)}`;
+                        setCardExpiry(val);
+                      }}
+                      placeholder="MM/AA (ej: 08/28)"
+                      className="w-full px-3.5 py-2.5 rounded-stitch bg-slate-950 border border-slate-700 text-white text-xs focus:outline-none focus:border-orange-500 font-mono text-center"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Código de Seguridad (CVV)</label>
+                    <input
+                      type="password"
+                      maxLength="4"
+                      required
+                      value={cardCvv}
+                      onChange={(e) => setCardCvv(e.target.value.replace(/\D/g, ''))}
+                      placeholder="•••"
+                      className="w-full px-3.5 py-2.5 rounded-stitch bg-slate-950 border border-slate-700 text-white text-xs focus:outline-none focus:border-orange-500 font-mono text-center"
+                    />
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-stitch bg-slate-950/60 border border-slate-800 text-[11px] text-slate-400 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span>Total a debitar de tu tarjeta:</span>
+                    <span className="text-orange-400 font-bold text-sm">${totalInvestment.toFixed(2)} USD</span>
+                  </div>
+                  <div className="flex items-center justify-between border-t border-slate-800 pt-1.5">
+                    <span>Comisión Kushki (2.95% + $0.25):</span>
+                    <span className="text-orange-300 font-semibold">-${gatewayFeeAmount.toFixed(2)} USD</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>PlatformFee neto para Survey 593:</span>
+                    <span className="text-emerald-400 font-semibold">${netPlatformFee.toFixed(2)} USD</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Botones de Navegación y Pago */}
+            <div className="flex justify-between pt-4">
+              <Button variant="outline" onClick={() => setStep(3)}>
+                Atrás
+              </Button>
+              <Button
+                size="lg"
+                variant="primary"
+                disabled={isFinancing}
+                onClick={handlePublishAndFinance}
+                className="bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black hover:opacity-90 shadow-lg shadow-emerald-500/20 text-xs sm:text-sm"
+              >
+                {isFinancing ? (
+                  <span className="flex items-center gap-2">
+                    <span className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                    Procesando Pago con Pasarela Bancaria...
+                  </span>
+                ) : paymentMethod === 'card' ? (
+                  `Pagar $${totalInvestment.toFixed(2)} USD con Tarjeta y Activar 🚀`
+                ) : paymentMethod === 'transfer' ? (
+                  `Registrar Transferencia y Activar Campaña 🚀`
+                ) : paymentMethod === 'deuna' ? (
+                  `Pagar $${totalInvestment.toFixed(2)} USD con DeUna y Activar 🚀`
+                ) : paymentMethod === 'kushki' ? (
+                  `Pagar $${totalInvestment.toFixed(2)} USD vía Kushki 3DS y Activar 🚀`
+                ) : (
+                  `Debitar $${totalInvestment.toFixed(2)} USD y Activar Campaña 🚀`
+                )}
+              </Button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* End of wizard form wrapper */}
+        {/* End of wizard form wrapper */}
       </div>
 
       {/* ========================================================================= */}
@@ -1029,6 +1312,22 @@ export const CreateSurveyWizard = () => {
                       <td className="p-2 text-right font-mono text-slate-500">$0.00</td>
                       <td className="p-2 text-right font-mono font-bold text-slate-900">${paymentSuccessReceipt.platformFee.toFixed(2)}</td>
                     </tr>
+                    {/* Fila de comisión de pasarela (solo si aplica, ej. Kushki) */}
+                    {paymentSuccessReceipt.gatewayFeeAmount > 0 && (
+                      <tr className="bg-orange-50/60">
+                        <td className="p-2 font-mono text-slate-500">GW-KSH</td>
+                        <td className="p-2 text-center font-semibold text-slate-700">1.00</td>
+                        <td className="p-2">
+                          <div className="font-bold text-slate-900">Comisión Pasarela de Pago ({paymentSuccessReceipt.paymentMethodKey === 'kushki' ? 'Kushki 3DS – 2.95% + $0.25' : 'Gateway'})</div>
+                          <div className="text-[10px] text-slate-500">
+                            Descontado de la Comisión Tecnológica Survey 593. No afecta fondos de encuestados (Escrow).
+                          </div>
+                        </td>
+                        <td className="p-2 text-right font-mono text-orange-600">-${paymentSuccessReceipt.gatewayFeeAmount.toFixed(2)}</td>
+                        <td className="p-2 text-right font-mono text-slate-500">$0.00</td>
+                        <td className="p-2 text-right font-mono font-bold text-orange-700">-${paymentSuccessReceipt.gatewayFeeAmount.toFixed(2)}</td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -1076,6 +1375,12 @@ export const CreateSurveyWizard = () => {
                         <td className="p-1.5 font-medium text-slate-600">IVA 15%:</td>
                         <td className="p-1.5 text-right font-mono font-semibold text-slate-800">${(paymentSuccessReceipt.platformFee - paymentSuccessReceipt.platformFee / 1.15).toFixed(2)}</td>
                       </tr>
+                      {paymentSuccessReceipt.gatewayFeeAmount > 0 && (
+                        <tr className="bg-orange-50/50">
+                          <td className="p-1.5 font-medium text-orange-700">Comisión Pasarela ({paymentSuccessReceipt.paymentMethodKey === 'kushki' ? 'Kushki' : 'Gateway'}):</td>
+                          <td className="p-1.5 text-right font-mono font-semibold text-orange-700">-${paymentSuccessReceipt.gatewayFeeAmount.toFixed(2)}</td>
+                        </tr>
+                      )}
                       <tr className="bg-teal-700 text-white font-black text-xs">
                         <td className="p-2">VALOR TOTAL PAGADO:</td>
                         <td className="p-2 text-right font-mono text-sm">${paymentSuccessReceipt.totalInvestment.toFixed(2)} USD</td>
