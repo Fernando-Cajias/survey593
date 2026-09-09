@@ -1,34 +1,64 @@
 # Survey 593 — Ecosistema Kolab
 
 ![Survey 593 Logo](https://img.shields.io/badge/Survey%20593-Kolab%20Ecosystem-0D9488?style=for-the-badge)
+![Status](https://img.shields.io/badge/Status-Producci%C3%B3n%20En%20Vivo-10B981?style=for-the-badge)
+[![Vercel Deployment](https://img.shields.io/badge/Deploy-Vercel-black?style=for-the-badge&logo=vercel)](https://survay593-final.vercel.app)
+[![Supabase Database](https://img.shields.io/badge/Database-Supabase%20PostgreSQL-3ECF8E?style=for-the-badge&logo=supabase)](https://supabase.com)
 
-Survey 593 es una plataforma (Prototipo SPA) de democratización de monetización de datos. Permite a empresas obtener *insights* reales del mercado en tiempo real, mientras recompensa financieramente a los usuarios (Doers) verificados por su opinión. Este proyecto actúa como el pilar de recolección de datos ("vendedor interno") para los futuros proyectos del Ecosistema Kolab.
+Survey 593 es una plataforma en la nube de inteligencia de mercado y democratización de monetización de datos. Permite a empresas obtener *insights* reales del mercado en tiempo real mediante un **No-Code BI Studio Drag & Drop**, mientras recompensa financieramente a los ciudadanos verificados por su opinión. Este proyecto actúa como el pilar de recolección de datos ("vendedor interno") para los futuros 15 proyectos del Ecosistema Kolab.
 
-## 📁 Documentación de Arquitectura (Entregable Final)
-En la carpeta `/docs` encontrarás los documentos requeridos para la defensa final:
-- [DDA_Survey593.md](./docs/DDA_Survey593.md): Documento de Diseño de Arquitectura (C4, DDD, NFRs, Cloud).
-- [Presentacion_Survey593.md](./docs/Presentacion_Survey593.md): Guion y estructura para las diapositivas de defensa.
+🌐 **Enlace Oficial de Producción en Vivo:** [https://survay593-final.vercel.app](https://survay593-final.vercel.app)
 
-## 🚀 Cómo Ejecutar el Proyecto Localmente
+## 📁 Documentación de Arquitectura y Estrategia de Negocio
+- [Presentacion_Ejecutiva_Para_Empresa.md](./docs/Presentacion_Ejecutiva_Para_Empresa.md): Presentación Ejecutiva y Comercial para Empresa (sin código, enfoque en negocio, marketing y objeción de usuarios).
+- [Arquitectura_Tecnica_Y_Negocio_Survey593.md](./docs/Arquitectura_Tecnica_Y_Negocio_Survey593.md): Justificación técnica formal, decisiones de arquitectura, nicho y modelo financiero.
+- [DDA_Survey593.md](./docs/DDA_Survey593.md): Documento de Diseño de Arquitectura (C4, DDD, NFRs, Cloud AWS/Supabase).
+- [Plan_Scrum_Equipo.md](./docs/Plan_Scrum_Equipo.md): Distribución de roles y módulos Scrum para los 8 integrantes del equipo.
+- [Presentacion_Survey593.md](./docs/Presentacion_Survey593.md): Guion de 10 diapositivas para la defensa final.
 
-El prototipo actual está diseñado como una **Single Page Application (SPA)** pura utilizando HTML5, CSS3 y JavaScript ES6+, con `localStorage` actuando como la base de datos temporal (con datos precargados para demostración). No requiere instalación de dependencias, Node.js ni bases de datos externas.
+## 📁 Estructura del Proyecto
+
+El repositorio está organizado de forma modular para desacoplar el Frontend, el Backend y la documentación:
+
+```
+AUTOMATIZACION/
+├── frontend/               # Aplicación oficial en React 18 + Vite + Tailwind CSS
+│   ├── src/                # Componentes, Páginas, Contexts y Servicios
+│   ├── index.html          # Entry point Vite
+│   ├── package.json        # Dependencias (React, Tailwind, Lucide, Chart.js)
+│   ├── tailwind.config.js  # Design System tokens
+│   └── vite.config.js      # Configuración de Vite
+├── backend/                # Configuración de Backend, APIs y Supabase / PostgreSQL
+│   └── README.md           # Guía de arquitectura de base de datos
+├── docs/                   # Documentación de Arquitectura, DDA y Plan Scrum
+│   ├── DDA_Survey593.md    # Documento de Diseño Arquitectónico (C4, NFRs, Cloud)
+│   ├── Plan_Scrum_Equipo.md# Distribución de tareas para los 8 integrantes
+│   └── Presentacion_Survey593.md # Diapositivas de defensa
+└── prototype-vanilla/      # Prototipo inicial en HTML/CSS/JS para referencia rápida
+```
+
+## 🚀 Cómo Ejecutar el Frontend Oficial (React + Vite)
 
 ### Requisitos Previos
-- Un navegador web moderno (Google Chrome, Firefox, Edge o Safari).
-- (Opcional) Visual Studio Code con la extensión "Live Server" para recarga en vivo.
+- **Node.js:** v18 o superior (recomendado v20+)
+- **npm:** v9 o superior
 
 ### Pasos para ejecutar:
 1. Clona este repositorio en tu máquina local:
    ```bash
    git clone https://github.com/Fernando-Cajias/survay593-final.git
-   ```
-2. Entra a la carpeta del proyecto:
-   ```bash
    cd survay593-final
    ```
-3. Abre el archivo `index.html` en tu navegador.
-   - **Opción A (Rápida):** Haz doble clic en el archivo `index.html` desde tu explorador de archivos.
-   - **Opción B (Recomendada):** Si usas VS Code, haz clic derecho sobre `index.html` y selecciona **"Open with Live Server"**.
+2. Entra a la carpeta del frontend e instala dependencias (solo la primera vez):
+   ```bash
+   cd frontend
+   npm install
+   ```
+3. Inicia el servidor de desarrollo:
+   ```bash
+   npm run dev
+   ```
+4. Abre [http://localhost:5173](http://localhost:5173) en tu navegador.
 
 ## 🔑 Credenciales de Demostración
 El sistema autogenerará una base de datos local (seed) la primera vez que lo abras. Usa los botones rápidos en la pantalla de "Iniciar Sesión" o las siguientes credenciales manuales para probar los distintos roles:
