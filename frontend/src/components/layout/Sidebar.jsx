@@ -29,6 +29,28 @@ export const Sidebar = () => {
 
   if (!currentUser) return null;
 
+  // Manejo ultra-seguro del nombre y correo del usuario para evitar colapsos
+  const userName = 
+    currentUser.full_name || 
+    currentUser.name || 
+    currentUser.user_metadata?.full_name || 
+    currentUser.email?.split('@')[0] || 
+    'Usuario';
+
+  const userEmail = currentUser.email || '';
+
+  // Generador de iniciales seguro contra valores nulos/indefinidos
+  const userInitials = userName
+    ? userName
+        .trim()
+        .split(' ')
+        .filter(Boolean)
+        .map((w) => w[0])
+        .join('')
+        .slice(0, 2)
+        .toUpperCase()
+    : 'U';
+
   const getMenuItems = () => {
     switch (currentUser.role) {
       case 'doer':
@@ -104,8 +126,8 @@ export const Sidebar = () => {
 
   const menuSections = getMenuItems();
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    if (logout) await logout();
     navigate('/login');
   };
 
@@ -177,16 +199,11 @@ export const Sidebar = () => {
               className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs text-white shrink-0"
               style={{ backgroundColor: currentUser.avatarColor || '#0D9488' }}
             >
-              {currentUser.name
-                .split(' ')
-                .map((w) => w[0])
-                .join('')
-                .slice(0, 2)
-                .toUpperCase()}
+              {userInitials}
             </div>
             <div className="min-w-0">
-              <div className="text-xs font-bold text-white truncate">{currentUser.name}</div>
-              <div className="text-[10px] text-slate-400 truncate">{currentUser.email}</div>
+              <div className="text-xs font-bold text-white truncate">{userName}</div>
+              <div className="text-[10px] text-slate-400 truncate">{userEmail}</div>
             </div>
           </div>
           <button
